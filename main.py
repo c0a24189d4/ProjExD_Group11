@@ -179,14 +179,49 @@ class Explosion(pg.sprite.Sprite):
         if self.life < 0:
             self.kill()
 
+class Bullet(pg.sprite.Sprite):
+    """
+    敵機の爆弾に関するクラス
+    """
+    def __init__(self, image: pg.Surface, direction: tuple[float, float], pos: tuple[int, int], speed: float):
+        """
+        敵機が放つ爆弾画像Surfaceを生成する
+        引数1 image：爆弾の画像Surface
+        引数2 direction：爆弾の進行方向を表すタプル(vx, vy)
+        引数3 pos：爆弾の初期位置座標タプル
+        引数4 speed：爆弾の速度
+        """
+        super().__init__()
+        self.image = image
+        self.rect = self.image.get_rect()
+        self.rect.center = pos
+        self.vx, self.vy = direction
+        self.speed = speed
+
+
+    def update(self):
+        """
+        爆弾を速度ベクトルself.vx, self.vyに基づき移動させる
+        画面外に出た場合は爆弾を消去する
+        """
+        self.rect.move_ip(self.speed*self.vx, self.speed*self.vy)
+        if check_bound(self.rect) != (True, True):
+            self.kill()
+
+
 
 class Enemy(pg.sprite.Sprite):
     """
     敵機に関するクラス
     """
     imgs = [pg.image.load(f"fig/alien{i}.png") for i in range(1, 4)]
+    bullet_img = pg.image.load("fig/bullet1.png")
     
     def __init__(self):
+        """
+        敵機画像Surfaceを生成する
+        ランダムな敵機画像を選択し、画面上部からランダムな位置に配置する
+        """
         super().__init__()
         self.image = pg.transform.rotozoom(random.choice(__class__.imgs), 0, 0.8)
         self.rect = self.image.get_rect()
@@ -194,18 +229,82 @@ class Enemy(pg.sprite.Sprite):
         self.vx, self.vy = 0, +6
         self.bound = random.randint(50, HEIGHT//2)  # 停止位置
         self.state = "down"  # 降下状態or停止状態
-        self.interval = random.randint(50, 300)  # 爆弾投下インターバル
+        self.interval = 50  # 爆弾投下インターバル
+        self.bullet_img = __class__.bullet_img
+        self.hp = 1 # 敵機の体力
 
     def update(self):
         """
         敵機を速度ベクトルself.vyに基づき移動（降下）させる
-        ランダムに決めた停止位置_boundまで降下したら，_stateを停止状態に変更する
-        引数 screen：画面Surface
+        ランダムに決めた停止位置self.boundまで降下したら、self.stateを停止状態に変更する
+        体力が0以下になった場合は敵機を消去する
         """
         if self.rect.centery > self.bound:
             self.vy = 0
             self.state = "stop"
         self.rect.move_ip(self.vx, self.vy)
+        if self.hp <= 0:
+            self.kill()
+
+    def shoot(self, bird: Bird) -> Bullet:
+        """
+        敵機がこうかとんに向けて爆弾を放つ
+        引数 bird：こうかとん
+        戻り値：爆弾インスタンス
+        """
+        direction = calc_orientation(self.rect, bird.rect)
+        return Bullet(self.bullet_img, direction, self.rect.center, 6)
+
+class Boss(Enemy):
+    """
+    ボス敵機に関するクラス
+    """
+    
+    def __init__(self):
+        """
+        ボス敵機画像Surfaceを生成する
+        画面中央上部から登場し、通常の敵機より高い体力と速い攻撃間隔を持つ
+        """
+        super().__init__()
+        self.image = pg.transform.rotozoom(pg.image.load("fig/boss.png"), 0, 4)
+        self.rect = self.image.get_rect()
+        self.rect.center = WIDTH//2, -200
+        self.vx, self.vy = 0, +3
+        self.bound = HEIGHT//4  # 停止位置
+        self.state = "down"  # 降下状態or停止状態
+        self.interval = 5  # 爆弾投下インターバル
+        self.hp = 20 # ボス敵機の体力
+
+        self.bullet_imgs = [pg.image.load("fig/bullet1.png")]
+
+    def update(self):
+        """
+        ボス敵機を速度ベクトルself.vyに基づき移動（降下）させる
+        停止位置self.boundまで降下したら、self.stateを停止状態に変更する
+        体力が0以下になった場合はボス敵機を消去する
+        """
+        if self.rect.centery > self.bound:
+            self.vy = 0
+            self.state = "stop"
+        self.rect.move_ip(self.vx, self.vy)
+        if self.hp <= 0:
+            self.kill()
+
+    def shoot(self, bird: Bird) -> list[Bullet]:
+        """
+        ボス敵機がこうかとんに向けて3方向に爆弾を放つ
+        引数 bird：こうかとん
+        戻り値：爆弾インスタンスのリスト（3個）
+        """
+        direction = calc_orientation(self.rect, bird.rect)
+        angle = math.degrees(math.atan2(-direction[1], direction[0]))
+        bullets = []
+        for delta_angle in [-20, 0, +20]:
+            rad = math.radians(angle + delta_angle)
+            dir_x = math.cos(rad)
+            dir_y = -math.sin(rad)
+            bullets.append(Bullet(self.bullet_imgs[0], (dir_x, dir_y), self.rect.center, 8))
+        return bullets   
 
 
 def main():
@@ -222,6 +321,7 @@ def main():
     beams = pg.sprite.Group()
     exps = pg.sprite.Group()
     emys = pg.sprite.Group()
+    bullets = pg.sprite.Group()
 
 
     tmr = 0
@@ -234,7 +334,6 @@ def main():
             if event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
                 beams.add(Beam(bird, 0))
                     
-
             key_lst = pg.key.get_pressed()              
 
         #追加機能(背景画像スクロール機能)
@@ -247,15 +346,30 @@ def main():
         if tmr%200 == 0:  # 200フレームに1回，敵機を出現させる
             emys.add(Enemy())
 
-        for emy in pg.sprite.groupcollide(emys, beams, True, True).keys():  # ビームと衝突した敵機リスト
+        if tmr == 1000:  # 1000フレームでボス登場
+            emys.add(Boss())
+
+        for emy in emys:
+            if emy.state == "stop" and tmr % emy.interval == 0:
+                bullets.add(emy.shoot(bird))
+
+        for emy in pg.sprite.groupcollide(emys, beams, False, True).keys():  # ビームと衝突した敵機リスト
             exps.add(Explosion(emy, 100))  # 爆発エフェクト
-            bird.change_img(6, screen)  # こうかとん喜びエフェクト
+            emy.hp -= 1  # 敵機の体力を1減少
+            if emy.hp <= 0:
+                emy.kill()
+                bird.change_img(6, screen)  # こうかとん喜びエフェクト
+
+        for bullet in pg.sprite.spritecollide(bird, bullets, True):
+            exps.add(Explosion(bullet, 10))  # 爆発エフェクト
         
         bird.update(key_lst, screen)
         beams.update()
         beams.draw(screen)
         emys.update()
         emys.draw(screen)
+        bullets.update()
+        bullets.draw(screen)
         exps.update()
         exps.draw(screen)
         pg.display.update()
