@@ -197,6 +197,9 @@ class Bullet(pg.sprite.Sprite):
         self.rect.center = pos
         self.vx, self.vy = direction
         self.speed = speed
+        # 浮動小数点の位置を保持してスムーズな移動を実現
+        self.x = float(pos[0])
+        self.y = float(pos[1])
 
 
     def update(self):
@@ -204,7 +207,12 @@ class Bullet(pg.sprite.Sprite):
         爆弾を速度ベクトルself.vx, self.vyに基づき移動させる
         画面外に出た場合は爆弾を消去する
         """
-        self.rect.move_ip(self.speed*self.vx, self.speed*self.vy)
+        # 浮動小数点で正確に位置を更新
+        self.x += self.speed * self.vx
+        self.y += self.speed * self.vy
+        # 整数位置に変換してrectを更新
+        self.rect.centerx = int(self.x)
+        self.rect.centery = int(self.y)
         if check_bound(self.rect) != (True, True):
             self.kill()
 
@@ -275,6 +283,8 @@ class Boss(Enemy):
         self.interval = 5  # 爆弾投下インターバル
         self.hp = 20 # ボス敵機の体力
 
+        self.bullet_direction = 0  # 爆弾の放つ方向の初期角度
+
         self.bullet_imgs = [pg.image.load("fig/bullet1.png")]
 
     def update(self):
@@ -296,15 +306,12 @@ class Boss(Enemy):
         引数 bird：こうかとん
         戻り値：爆弾インスタンスのリスト（3個）
         """
-        direction = calc_orientation(self.rect, bird.rect)
-        angle = math.degrees(math.atan2(-direction[1], direction[0]))
         bullets = []
-        for delta_angle in [-20, 0, +20]:
-            rad = math.radians(angle + delta_angle)
-            dir_x = math.cos(rad)
-            dir_y = -math.sin(rad)
-            bullets.append(Bullet(self.bullet_imgs[0], (dir_x, dir_y), self.rect.center, 8))
-        return bullets   
+        angle = self.bullet_direction
+        direction = pgm.Vector2(math.cos(math.radians(angle)), math.sin(math.radians(angle))).normalize()
+        bullets.append(Bullet(self.bullet_imgs[0], (direction.x, direction.y), self.rect.center, 3))
+        self.bullet_direction += 10  # 次回は15度回転（より目立つ変化）
+        return bullets
 
 
 class Menu:
